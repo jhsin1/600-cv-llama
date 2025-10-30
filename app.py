@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document, PromptTemplate
 from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_cloud_services import LlamaParse
@@ -38,12 +38,6 @@ if "messages" not in st.session_state:
 
 # Helper function to load documents with LlamaParse
 def load_documents_with_llamaparse(data_dir: str, llama_api_key: str) -> List[Document]:
-    """
-    Load documents from data directory using LlamaParse for complex file types
-    and SimpleDirectoryReader for basic text files.
-
-    Supported complex file types: PDF, DOCX, PPTX, XLSX
-    """
     data_path = Path(data_dir)
     if not data_path.exists():
         return []
@@ -175,7 +169,29 @@ def initialize_query_engine(_openai_api_key, _llama_api_key):
             status = "✅ Index loaded from storage"
 
         # Create query engine
-        query_engine = index.as_query_engine(llm=llm, embed_model=embed_model)
+        prompt = """
+            You are an interactive and encouraging teaching assistant for a university course.
+            You help students think through lecture material step by step — not by giving final answers immediately.
+
+            When answering:
+            1. Restate the question briefly.
+            2. Ask one guiding question to make the student think.
+            3. Offer a short hint drawn from the retrieved lecture materials.
+
+            Use a warm and conversational tone.
+            Keep responses under 5 sentences unless the user asks for more detail.
+
+            Context from the lecture:
+            {context_str}
+
+            Student question:
+            {query_str}
+
+            Your response:
+        """
+
+        custom_prompt = PromptTemplate(prompt)
+        query_engine = index.as_query_engine(llm=llm, embed_model=embed_model, text_qa_template=custom_prompt)
         return query_engine, status
 
     except Exception as e:
@@ -221,6 +237,8 @@ if prompt := st.chat_input("Ask a question about your documents"):
         with st.spinner("Thinking..."):
             try:
                 response = st.session_state.query_engine.query(prompt)
+
+                # prompt tuning here?
                 response_text = str(response)
                 st.markdown(response_text)
 
